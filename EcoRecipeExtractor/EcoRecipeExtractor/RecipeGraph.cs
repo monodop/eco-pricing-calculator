@@ -11,13 +11,24 @@ namespace EcoRecipeExtractor
     {
         class ComputationProgress
         {
+            public ComputationProgress(string itemName)
+            {
+                PriceInfo = new PriceInfo(itemName);
+            }
+
             public List<(Recipe recipe, RecipeVariant variant)> RemainingRecipesToCompute { get; set; } = new List<(Recipe recipe, RecipeVariant variant)>();
             public bool Completed { get; set; } = false;
-            public PriceInfo PriceInfo { get; set; } = new PriceInfo();
+            public PriceInfo PriceInfo { get; }
         }
 
         public class PriceInfo
         {
+            public PriceInfo(string itemName)
+            {
+                ItemName = itemName;
+            }
+
+            public string ItemName { get; }
             public Recipe RecipeUsed { get; set; }
             public RecipeVariant VariantUsed { get; set; }
             public List<(string ingredient, long quantity, PriceInfo pricePerUnit)> IngredientCosts { get; set; } = new List<(string ingredient, long quantity, PriceInfo pricePerUnit)>();
@@ -41,13 +52,14 @@ namespace EcoRecipeExtractor
             {
                 get
                 {
-                    return LaborCost + TimeCost + EnergyCost + MaterialCost + IngredientsCost + WasteProductHandlingCost;
+                    // TODO: factor in other products?
+                    return (LaborCost + TimeCost + EnergyCost + MaterialCost + IngredientsCost + WasteProductHandlingCost) / (VariantUsed?.Products.Single(p => p.name1 == ItemName).quantity) ?? 1;
                 }
             }
 
             public decimal GetSuggestedPrice(AvailabilitySettings settings)
             {
-                var suggestedCost = LaborCost + TimeCost + EnergyCost + MaterialCost + GetSuggestedIngredientsPrice(settings) + WasteProductHandlingCost;
+                var suggestedCost = (LaborCost + TimeCost + EnergyCost + MaterialCost + GetSuggestedIngredientsPrice(settings) + WasteProductHandlingCost) / (VariantUsed?.Products.Single(p => p.name1 == ItemName).quantity) ?? 1;
                 return -(suggestedCost / (settings.NormalMargin - 1));
             }
 
@@ -90,12 +102,14 @@ namespace EcoRecipeExtractor
             // Setup
             foreach (var (item, data) in _itemData.Items)
             {
-                var computationProgress = new ComputationProgress();
+                var computationProgress = new ComputationProgress(item);
                 if (_recipesData.Products.ContainsKey(item))
                 {
                     var recipeNames = _recipesData.Products[item];
-                    var recipes = recipeNames.Where(n => _recipesData.Recipes.ContainsKey(n)).Select(n => _recipesData.Recipes[n]);
-                    computationProgress.RemainingRecipesToCompute.AddRange(recipes.SelectMany(r => r.Variants, (r, v) => (r, v.Value)));
+                    var variants = _recipesData.Recipes.Values
+                        .SelectMany(r => r.Variants, (r, v) => (r, v.Value))
+                        .Where(rv => recipeNames.Contains(rv.Value.Untranslated));
+                    computationProgress.RemainingRecipesToCompute.AddRange(variants);
                 }
 
                 if (_settings.MaterialPrices.ContainsKey(item))
@@ -133,9 +147,11 @@ namespace EcoRecipeExtractor
                             }
                             else if (ingredient.type == "TAG")
                             {
-                                // TODO:
-                                progress.RemainingRecipesToCompute.Remove((recipe, variant));
-                                dirty = true;
+                                if (!_itemData.Tags[ingredient.name1].Any(option => progressData.ContainsKey(option)))
+                                {
+                                    progress.RemainingRecipesToCompute.Remove((recipe, variant));
+                                    dirty = true;
+                                }
                             }
                         }
                     }
@@ -170,7 +186,8 @@ namespace EcoRecipeExtractor
                         else if (ingredient.type == "TAG")
                         {
                             // TODO:
-                            return;
+                            break;
+                            throw new NotImplementedException();
                         }
                     }
                 }
@@ -210,20 +227,41 @@ namespace EcoRecipeExtractor
 
                     (Recipe recipe, RecipeVariant variant) bestRecipe = (null, null);
                     decimal bestRecipeCost = decimal.MaxValue;
+                    var bestIngredientCosts = new List<(string ingredient, long quantity, PriceInfo pricePerUnit)>();
 
                     if (!_settings.MaterialPrices.ContainsKey(item))
                     {
                         foreach (var (recipe, variant) in progress.RemainingRecipesToCompute)
                         {
                             decimal currentRecipeCost = 0;
+                            var currentIngredientCosts = new List<(string ingredient, long quantity, PriceInfo pricePerUnit)>();
+
                             foreach (var ingredient in variant.Ingredients)
                             {
-                                if (!progressData.ContainsKey(ingredient.name1) || !progressData[ingredient.name1].Completed)
+                                if (ingredient.type == "ITEM")
                                 {
-                                    completed = false;
-                                    break;
+                                    if (!progressData.ContainsKey(ingredient.name1) || !progressData[ingredient.name1].Completed)
+                                    {
+                                        completed = false;
+                                        break;
+                                    }
+                                    currentRecipeCost += progressData[ingredient.name1].PriceInfo.TotalCost * ingredient.quantity;
+                                    currentIngredientCosts.Add((ingredient.name1, ingredient.quantity, progressData[ingredient.name1].PriceInfo));
                                 }
-                                currentRecipeCost += progressData[ingredient.name1].PriceInfo.TotalCost;
+                                else if (ingredient.type == "TAG")
+                                {
+                                    var availableOptions = _itemData.Tags[ingredient.name1].Where(i => progressData.ContainsKey(i)).ToList();
+                                    if (availableOptions.Count == 0 || availableOptions.Any(option => !progressData[option].Completed))
+                                    {
+                                        completed = false;
+                                        break;
+                                    }
+
+                                    var orderedOptions = availableOptions.OrderBy(option => progressData[option].PriceInfo.TotalCost);
+                                    var bestOption = orderedOptions.First();
+                                    currentRecipeCost += progressData[bestOption].PriceInfo.TotalCost * ingredient.quantity;
+                                    currentIngredientCosts.Add((bestOption, ingredient.quantity, progressData[bestOption].PriceInfo));
+                                }
                             }
 
                             if (!completed)
@@ -231,8 +269,10 @@ namespace EcoRecipeExtractor
 
                             if (currentRecipeCost < bestRecipeCost)
                             {
+                                // TODO: factor in all costs, somehow
                                 bestRecipe = (recipe, variant);
                                 bestRecipeCost = currentRecipeCost;
+                                bestIngredientCosts = currentIngredientCosts;
                             }
                         }
                     }
@@ -244,7 +284,7 @@ namespace EcoRecipeExtractor
                         progress.PriceInfo.VariantUsed = bestRecipe.variant;
                         if (progress.PriceInfo.VariantUsed != null)
                         {
-                            progress.PriceInfo.IngredientCosts = progress.PriceInfo.VariantUsed.Ingredients.Select(i => (i.name1, i.quantity, progressData[i.name1].PriceInfo)).ToList();
+                            progress.PriceInfo.IngredientCosts = bestIngredientCosts;
                             progress.PriceInfo.LaborCost = (decimal)progress.PriceInfo.RecipeUsed.BaseLaborCost * _settings.CostPerLaborPoint;
                             progress.PriceInfo.TimeCost = (decimal)progress.PriceInfo.RecipeUsed.BaseCraftTime * _settings.CostPerMinute;
                         }
