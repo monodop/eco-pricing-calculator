@@ -11,9 +11,9 @@ namespace EcoRecipeExtractor
     {
         class ComputationProgress
         {
-            public ComputationProgress(string itemName)
+            public ComputationProgress(string itemName, AvailabilitySettings settings)
             {
-                PriceInfo = new PriceInfo(itemName);
+                PriceInfo = new PriceInfo(itemName, settings);
             }
 
             public List<(Recipe recipe, RecipeVariant variant)> RemainingRecipesToCompute { get; set; } = new List<(Recipe recipe, RecipeVariant variant)>();
@@ -23,9 +23,12 @@ namespace EcoRecipeExtractor
 
         public class PriceInfo
         {
-            public PriceInfo(string itemName)
+            private readonly AvailabilitySettings _settings;
+
+            public PriceInfo(string itemName, AvailabilitySettings settings)
             {
                 ItemName = itemName;
+                _settings = settings;
             }
 
             public string ItemName { get; }
@@ -44,9 +47,9 @@ namespace EcoRecipeExtractor
                     return IngredientCosts.Sum(c => c.pricePerUnit.TotalCost * c.quantity);
                 }
             }
-            public decimal GetSuggestedIngredientsPrice(AvailabilitySettings settings)
+            public decimal GetSuggestedIngredientsPrice()
             {
-                return IngredientCosts.Sum(c => c.pricePerUnit.GetSuggestedPrice(settings) * c.quantity);
+                return IngredientCosts.Sum(c => c.pricePerUnit.GetSuggestedPrice() * c.quantity);
             }
             public decimal TotalCost
             {
@@ -57,29 +60,34 @@ namespace EcoRecipeExtractor
                 }
             }
 
-            public decimal GetSuggestedPrice(AvailabilitySettings settings)
+            public decimal GetSuggestedPrice()
             {
-                var suggestedCost = (LaborCost + TimeCost + EnergyCost + MaterialCost + GetSuggestedIngredientsPrice(settings) + WasteProductHandlingCost) / (VariantUsed?.Products.Single(p => p.name1 == ItemName).quantity) ?? 1;
-                return -(suggestedCost / (settings.NormalMargin - 1));
+                var suggestedCost = (LaborCost + TimeCost + EnergyCost + MaterialCost + GetSuggestedIngredientsPrice() + WasteProductHandlingCost) / (VariantUsed?.Products.Single(p => p.name1 == ItemName).quantity) ?? 1;
+                return -(suggestedCost / (_settings.NormalDemandMargin - 1));
             }
 
-            private string FormatCurrency(decimal value)
+            public decimal GetSuggestedMarkup()
+            {
+                return GetSuggestedPrice() * _settings.NormalDemandMargin;
+            }
+
+            public string FormatCurrency(decimal value)
             {
                 return value.ToString("0.00");
             }
 
-            public string ToString(AvailabilitySettings settings)
+            public override string ToString()
             {
                 var totalCost = TotalCost;
-                var suggestedPrice = GetSuggestedPrice(settings);
+                var suggestedPrice = GetSuggestedPrice();
 
                 if (IngredientCosts.Count == 0)
                 {
                     return $"(${FormatCurrency(totalCost)} - ${FormatCurrency(suggestedPrice)})";
                 }
 
-                var breakdown = string.Join(" + ", IngredientCosts.Select(c => $"{c.ingredient} (${FormatCurrency(c.pricePerUnit.TotalCost * c.quantity)} - ${FormatCurrency(c.pricePerUnit.GetSuggestedPrice(settings) * c.quantity)})"));
-                var addtBreakdown = $"Labor (${FormatCurrency(LaborCost)}) + Time (${FormatCurrency(TimeCost)}) + Energy (${FormatCurrency(EnergyCost)}) + Waste (${FormatCurrency(WasteProductHandlingCost)}) + Markup ($0.00 - ${FormatCurrency(suggestedPrice * settings.NormalMargin)})";
+                var breakdown = string.Join(" + ", IngredientCosts.Select(c => $"{c.ingredient} (${FormatCurrency(c.pricePerUnit.TotalCost * c.quantity)} - ${FormatCurrency(c.pricePerUnit.GetSuggestedPrice() * c.quantity)})"));
+                var addtBreakdown = $"Labor (${FormatCurrency(LaborCost)}) + Time (${FormatCurrency(TimeCost)}) + Energy (${FormatCurrency(EnergyCost)}) + Waste (${FormatCurrency(WasteProductHandlingCost)}) + Markup ($0.00 - ${FormatCurrency(suggestedPrice * _settings.NormalDemandMargin)})";
                 return $"(${FormatCurrency(totalCost)} - ${FormatCurrency(suggestedPrice)}) - {VariantUsed}: {breakdown} + {addtBreakdown}";
             }
         }
@@ -102,7 +110,7 @@ namespace EcoRecipeExtractor
             // Setup
             foreach (var (item, data) in _itemData.Items)
             {
-                var computationProgress = new ComputationProgress(item);
+                var computationProgress = new ComputationProgress(item, _settings);
                 if (_recipesData.Products.ContainsKey(item))
                 {
                     var recipeNames = _recipesData.Products[item];
@@ -112,9 +120,9 @@ namespace EcoRecipeExtractor
                     computationProgress.RemainingRecipesToCompute.AddRange(variants);
                 }
 
-                if (_settings.MaterialPrices.ContainsKey(item))
+                if (_settings.ItemPrices.ContainsKey(item))
                 {
-                    computationProgress.PriceInfo.MaterialCost = _settings.MaterialPrices[item];
+                    computationProgress.PriceInfo.MaterialCost = _settings.ItemPrices[item];
                 }
 
                 progressData[item] = computationProgress;
@@ -129,7 +137,7 @@ namespace EcoRecipeExtractor
                 foreach (var (item, progress) in progressData.ToList())
                 {
                     // Eliminate items that we can't produce that have no remaining recipes
-                    if (progress.RemainingRecipesToCompute.Count == 0 && !_settings.MaterialPrices.ContainsKey(item))
+                    if (progress.RemainingRecipesToCompute.Count == 0 && !_settings.ItemPrices.ContainsKey(item))
                     {
                         progressData.Remove(item);
                         dirty = true;
@@ -229,7 +237,7 @@ namespace EcoRecipeExtractor
                     decimal bestRecipeCost = decimal.MaxValue;
                     var bestIngredientCosts = new List<(string ingredient, long quantity, PriceInfo pricePerUnit)>();
 
-                    if (!_settings.MaterialPrices.ContainsKey(item))
+                    if (!_settings.ItemPrices.ContainsKey(item))
                     {
                         foreach (var (recipe, variant) in progress.RemainingRecipesToCompute)
                         {
