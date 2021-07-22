@@ -35,9 +35,34 @@ namespace EcoRecipeExtractor
             public string ItemName { get; }
             public Recipe RecipeUsed { get; set; }
             public RecipeVariant VariantUsed { get; set; }
-            public List<(string ingredient, long quantity, PriceInfo pricePerUnit)> IngredientCosts { get; set; } = new List<(string ingredient, long quantity, PriceInfo pricePerUnit)>();
-            public decimal LaborCost { get; set; }
-            public decimal TimeCost { get; set; }
+            public List<(string ingredient, long quantity, bool cannotBeReducedViaModules, PriceInfo pricePerUnit)> IngredientCosts { get; set; } = new List<(string ingredient, long quantity, bool cannotBeReducedViaModules, PriceInfo pricePerUnit)>();
+
+            private decimal _laborCost;
+            public decimal LaborCost
+            {
+                get
+                {
+                    return _laborCost * (0.2m); // lvl 7 80% reduction
+                }
+                set
+                {
+                    _laborCost = value;
+                }
+            }
+
+            private decimal _timeCost;
+            public decimal TimeCost
+            {
+                get
+                {
+                    return _timeCost * _getModifier();
+                }
+                set
+                {
+                    _timeCost = value;
+                }
+            }
+
             public decimal EnergyCost { get; set; }
             public decimal MaterialCost { get; set; }
             public decimal WasteProductHandlingCost { get; set; }
@@ -49,7 +74,7 @@ namespace EcoRecipeExtractor
                 {
                     if (_ingredientCost == null)
                     {
-                        var result = IngredientCosts.Sum(c => c.pricePerUnit.TotalCost * c.quantity);
+                        var result = IngredientCosts.Sum(c => c.pricePerUnit.TotalCost * c.quantity * (c.cannotBeReducedViaModules ? 1 : c.pricePerUnit._getModifier()));
 
                         if (VariantUsed == null)
                         {
@@ -69,7 +94,7 @@ namespace EcoRecipeExtractor
                 {
                     if (_suggestedIngredientsPrice == null)
                     {
-                        var result = IngredientCosts.Sum(c => c.pricePerUnit.SuggestedPrice * c.quantity);
+                        var result = IngredientCosts.Sum(c => c.pricePerUnit.SuggestedPrice * c.quantity * (c.cannotBeReducedViaModules ? 1 : c.pricePerUnit._getModifier()));
 
                         if (VariantUsed == null)
                         {
@@ -80,6 +105,21 @@ namespace EcoRecipeExtractor
                     }
                     return (decimal)_suggestedIngredientsPrice;
                 }
+            }
+
+            private decimal _getModifier()
+            {
+                if (RecipeUsed == null)
+                    return 1;
+                return RecipeUsed.CraftStn
+                    .Select(s => _settings.TableUpgradeTypes[s.name1])
+                    .Min(upgradeType => 1 - upgradeType switch
+                    {
+                        AvailabilitySettings.UpgradeType.Basic => _settings.BasicUpgradePct,
+                        AvailabilitySettings.UpgradeType.Advanced => _settings.AdvancedUpgradePct,
+                        AvailabilitySettings.UpgradeType.Modern => _settings.ModernUpgradePct,
+                        _ => 0,
+                    });
             }
 
             private decimal? _totalCost;
@@ -420,7 +460,7 @@ namespace EcoRecipeExtractor
 
                     (Recipe recipe, RecipeVariant variant) bestRecipe = (null, null);
                     decimal bestRecipeCost = decimal.MaxValue;
-                    var bestIngredientCosts = new List<(string ingredient, long quantity, PriceInfo pricePerUnit)>();
+                    var bestIngredientCosts = new List<(string ingredient, long quantity, bool cannotBeReducedViaModules, PriceInfo pricePerUnit)>();
 
                     if (!itemPrices.ContainsKey(item))
                     {
@@ -428,7 +468,7 @@ namespace EcoRecipeExtractor
                         {
                             decimal currentRecipeCost = 0;
                             var currentBlockedByLoop = false;
-                            var currentIngredientCosts = new List<(string ingredient, long quantity, PriceInfo pricePerUnit)>();
+                            var currentIngredientCosts = new List<(string ingredient, long quantity, bool cannotBeReducedViaModules, PriceInfo pricePerUnit)>();
 
                             foreach (var ingredient in variant.Ingredients)
                             {
@@ -450,7 +490,7 @@ namespace EcoRecipeExtractor
                                         }
                                     }
                                     currentRecipeCost += progressData[ingredient.name1].PriceInfo.TotalCost * ingredient.quantity;
-                                    currentIngredientCosts.Add((ingredient.name1, ingredient.quantity, progressData[ingredient.name1].PriceInfo));
+                                    currentIngredientCosts.Add((ingredient.name1, ingredient.quantity, ingredient.cannotBeReducedViaModules, progressData[ingredient.name1].PriceInfo));
                                 }
                                 else if (ingredient.type == "TAG")
                                 {
@@ -474,7 +514,7 @@ namespace EcoRecipeExtractor
                                     var orderedOptions = availableOptions.OrderBy(option => progressData[option].PriceInfo.TotalCost);
                                     var bestOption = orderedOptions.First();
                                     currentRecipeCost += progressData[bestOption].PriceInfo.TotalCost * ingredient.quantity;
-                                    currentIngredientCosts.Add((bestOption, ingredient.quantity, progressData[bestOption].PriceInfo));
+                                    currentIngredientCosts.Add((bestOption, ingredient.quantity, ingredient.cannotBeReducedViaModules, progressData[bestOption].PriceInfo));
                                 }
                             }
 

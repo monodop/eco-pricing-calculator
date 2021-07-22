@@ -48,17 +48,18 @@ namespace EcoRecipeExtractor
             request.Ranges = new Repeatable<string>(new[]
             {
                 "Settings!A2:B1000", // 0 Skills
-                "Settings!D2:E1000", // 1 Tables 
-                "Settings!G2:I1000", // 2 Raw material prices
-                "Settings!K2:M1000", // 3 Byproduct handling prices
-                "Settings!O2:Q1000", // 4 Raw material demand
-                "Settings!S1:T1000", // 5 Other settings
+                "Settings!D2:F1000", // 1 Tables 
+                "Settings!H2:J1000", // 2 Raw material prices
+                "Settings!L2:N1000", // 3 Byproduct handling prices
+                "Settings!P2:R1000", // 4 Raw material demand
+                "Settings!T1:U1000", // 5 Other settings
             });
             var response = await request.ExecuteAsync(cancellationToken);
 
             var settings = new AvailabilitySettings();
             settings.AvailableSkills = response.ValueRanges[0].Values?.ToDictionary(v => v[0].ToString(), v => int.Parse(v[1].ToString())) ?? new Dictionary<string, int>();
-            settings.AvailableTables = response.ValueRanges[1].Values?.Where(v => v[1].ToString() == "TRUE").Select(v => v[0].ToString()).ToList() ?? new List<string>();
+            settings.AvailableTables = response.ValueRanges[1].Values?.Where(v => v[2].ToString() == "TRUE").Select(v => v[0].ToString()).ToList() ?? new List<string>();
+            settings.TableUpgradeTypes = response.ValueRanges[1].Values?.ToDictionary(v => v[0].ToString(), v => ParseUpgradeType(v[1].ToString())) ?? new Dictionary<string, AvailabilitySettings.UpgradeType>();
             settings.ItemPrices = response.ValueRanges[2].Values?.Where(v => v[0].ToString() == "ITEM").ToDictionary(v => v[1].ToString(), v => decimal.Parse(v[2].ToString())) ?? new Dictionary<string, decimal>();
             settings.TagPrices = response.ValueRanges[2].Values?.Where(v => v[0].ToString() == "TAG").ToDictionary(v => v[1].ToString(), v => decimal.Parse(v[2].ToString())) ?? new Dictionary<string, decimal>();
             settings.ItemByproductHandlingPrices = response.ValueRanges[3].Values?.Where(v => v[0].ToString() == "ITEM").ToDictionary(v => v[1].ToString(), v => decimal.Parse(v[2].ToString())) ?? new Dictionary<string, decimal>();
@@ -68,7 +69,23 @@ namespace EcoRecipeExtractor
             settings.CostPerMinute = decimal.Parse(response.ValueRanges[5].Values.First(v => v[0].ToString() == "Cost Per Minute")[1].ToString());
             settings.NormalDemandMargin = decimal.Parse(response.ValueRanges[5].Values.First(v => v[0].ToString() == "Normal Demand Margin")[1].ToString());
             settings.HighDemandMargin = decimal.Parse(response.ValueRanges[5].Values.First(v => v[0].ToString() == "High Demand Margin")[1].ToString());
+
+            settings.BasicUpgradePct = decimal.Parse(response.ValueRanges[5].Values.First(v => v[0].ToString() == "Basic Upgrade %")[1].ToString().TrimEnd('%')) / 100;
+            settings.AdvancedUpgradePct = decimal.Parse(response.ValueRanges[5].Values.First(v => v[0].ToString() == "Advanced Upgrade %")[1].ToString().TrimEnd('%')) / 100;
+            settings.ModernUpgradePct = decimal.Parse(response.ValueRanges[5].Values.First(v => v[0].ToString() == "Modern Upgrade %")[1].ToString().TrimEnd('%')) / 100;
             return settings;
+        }
+
+        private AvailabilitySettings.UpgradeType ParseUpgradeType(string upgradeType)
+        {
+            return upgradeType switch
+            {
+                "None" => AvailabilitySettings.UpgradeType.None,
+                "Basic" => AvailabilitySettings.UpgradeType.Basic,
+                "Advanced" => AvailabilitySettings.UpgradeType.Advanced,
+                "Modern" => AvailabilitySettings.UpgradeType.Modern,
+                _ => AvailabilitySettings.UpgradeType.Unknown,
+            };
         }
 
         public async Task CommitPricesAsync(Dictionary<string, RecipeGraph.PriceInfo> prices, ItemDataResponse itemData, CancellationToken cancellationToken)

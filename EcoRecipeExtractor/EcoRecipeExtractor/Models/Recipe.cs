@@ -30,7 +30,7 @@ namespace EcoRecipeExtractor.Models
     public class RecipeVariant
     {
         public string Untranslated { get; set; }
-        public List<(string type, string name1, long quantity, bool unknown, string name2)> Ingredients { get; set; } = new List<(string type, string name1, long quantity, bool cannotBeReducedViaModules, string name2)>();
+        public List<(string type, string name1, long quantity, bool cannotBeReducedViaModules, string name2)> Ingredients { get; set; } = new List<(string type, string name1, long quantity, bool cannotBeReducedViaModules, string name2)>();
         public List<(string name1, long quantity, string name2)> Products { get; set; } = new List<(string name1, long quantity, string name2)>();
 
         public override string ToString()
