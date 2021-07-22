@@ -1,4 +1,5 @@
-﻿using Google.Apis.Auth.OAuth2;
+﻿using EcoRecipeExtractor.Models;
+using Google.Apis.Auth.OAuth2;
 using Google.Apis.Services;
 using Google.Apis.Sheets.v4;
 using Google.Apis.Sheets.v4.Data;
@@ -70,7 +71,7 @@ namespace EcoRecipeExtractor
             return settings;
         }
 
-        public async Task CommitPricesAsync(Dictionary<string, RecipeGraph.PriceInfo> prices, CancellationToken cancellationToken)
+        public async Task CommitPricesAsync(Dictionary<string, RecipeGraph.PriceInfo> prices, ItemDataResponse itemData, CancellationToken cancellationToken)
         {
             using var sheetService = await _getSheetsServiceAsync(cancellationToken);
 
@@ -78,27 +79,52 @@ namespace EcoRecipeExtractor
             await clearRequest.ExecuteAsync(cancellationToken);
 
             var pairs = prices.OrderBy(kvp => kvp.Key).ToList();
+            var tagPairs = itemData.Tags.OrderBy(t => t.Key).Select(t => (t.Key, prices.Where(p => t.Value.Contains(p.Key)).OrderBy(p => p.Value.SuggestedPrice).FirstOrDefault().Value)).Where(t => t.Value != null).ToList();
 
-            var valueRange = new ValueRange()
+            var batchUpdateBody = new BatchUpdateValuesRequest()
             {
-                Range = "Prices!A2:K" + (pairs.Count + 1),
-                Values = pairs.Select(kvp => new List<object>()
+                Data = new List<ValueRange>()
                 {
-                    kvp.Key,
-                    kvp.Value.TotalCost,
-                    kvp.Value.SuggestedPrice,
-                    kvp.Value.IngredientsCost,
-                    kvp.Value.SuggestedIngredientsPrice,
-                    kvp.Value.LaborCost,
-                    kvp.Value.TimeCost,
-                    kvp.Value.EnergyCost,
-                    kvp.Value.WasteProductHandlingCost,
-                    kvp.Value.SuggestedMarkup,
-                    kvp.Value.VariantUsed?.ToString(),
-                }).ToList<IList<object>>(),
+                    new ValueRange()
+                    {
+                        Range = "Prices!A2:K" + (pairs.Count + 1),
+                        Values = pairs.Select(kvp => new List<object>()
+                        {
+                            kvp.Key,
+                            kvp.Value.TotalCost,
+                            kvp.Value.SuggestedPrice,
+                            kvp.Value.IngredientsCost,
+                            kvp.Value.SuggestedIngredientsPrice,
+                            kvp.Value.LaborCost,
+                            kvp.Value.TimeCost,
+                            kvp.Value.EnergyCost,
+                            kvp.Value.WasteProductHandlingCost,
+                            kvp.Value.SuggestedMarkup,
+                            kvp.Value.VariantUsed?.ToString(),
+                        }).ToList<IList<object>>(),
+                    },
+                    new ValueRange()
+                    {
+                        Range = "TagPrices!A2:K" + (tagPairs.Count + 1),
+                        Values = tagPairs.Select(kvp => new List<object>()
+                        {
+                            kvp.Key,
+                            kvp.Value.TotalCost,
+                            kvp.Value.SuggestedPrice,
+                            kvp.Value.IngredientsCost,
+                            kvp.Value.SuggestedIngredientsPrice,
+                            kvp.Value.LaborCost,
+                            kvp.Value.TimeCost,
+                            kvp.Value.EnergyCost,
+                            kvp.Value.WasteProductHandlingCost,
+                            kvp.Value.SuggestedMarkup,
+                            kvp.Value.VariantUsed?.ToString(),
+                        }).ToList<IList<object>>(),
+                    },
+                },
+                ValueInputOption = "USER_ENTERED",
             };
-            var request = sheetService.Spreadsheets.Values.Update(valueRange, _spreadsheetId, valueRange.Range);
-            request.ValueInputOption = SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum.USERENTERED;
+            var request = sheetService.Spreadsheets.Values.BatchUpdate(batchUpdateBody, _spreadsheetId);
             await request.ExecuteAsync(cancellationToken);
         }
     }

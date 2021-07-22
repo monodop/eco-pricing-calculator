@@ -70,7 +70,7 @@ namespace EcoRecipeExtractor
                 Console.WriteLine($"{item} {price}");
             }
 
-            await sheetManager.CommitPricesAsync(prices, cancellationToken);
+            await sheetManager.CommitPricesAsync(prices, itemData, cancellationToken);
         }
     }
 }
