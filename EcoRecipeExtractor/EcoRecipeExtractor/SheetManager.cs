@@ -86,14 +86,14 @@ namespace EcoRecipeExtractor
                 {
                     kvp.Key,
                     kvp.Value.TotalCost,
-                    kvp.Value.GetSuggestedPrice(),
+                    kvp.Value.SuggestedPrice,
                     kvp.Value.IngredientsCost,
-                    kvp.Value.GetSuggestedIngredientsPrice(),
+                    kvp.Value.SuggestedIngredientsPrice,
                     kvp.Value.LaborCost,
                     kvp.Value.TimeCost,
                     kvp.Value.EnergyCost,
                     kvp.Value.WasteProductHandlingCost,
-                    kvp.Value.GetSuggestedMarkup(),
+                    kvp.Value.SuggestedMarkup,
                     kvp.Value.VariantUsed?.ToString(),
                 }).ToList<IList<object>>(),
             };
