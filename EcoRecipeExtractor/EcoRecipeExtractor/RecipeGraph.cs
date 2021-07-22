@@ -185,6 +185,7 @@ namespace EcoRecipeExtractor
                 {
                     var recipeNames = _recipesData.Products[item];
                     var variants = _recipesData.Recipes.Values
+                        .Where(r => r.SkillNeeds == null || r.SkillNeeds.All(need => _settings.AvailableSkills.ContainsKey(need.name1) && _settings.AvailableSkills[need.name1] >= need.level))
                         .SelectMany(r => r.Variants, (r, v) => (r, v.Value))
                         .Where(rv => recipeNames.Contains(rv.Value.Untranslated));
                     computationProgress.RemainingRecipesToCompute.AddRange(variants);
