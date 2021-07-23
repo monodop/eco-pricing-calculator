@@ -524,6 +524,8 @@ namespace EcoRecipeExtractor
                             if (currentBlockedByLoop)
                                 continue;
 
+                            currentRecipeCost /= ((variant?.Products.Single(p => p.name1 == item).quantity) ?? 1);
+
                             if (currentRecipeCost < bestRecipeCost)
                             {
                                 // TODO: factor in all costs, somehow
