@@ -92,10 +92,7 @@ namespace EcoRecipeExtractor
         {
             using var sheetService = await _getSheetsServiceAsync(cancellationToken);
 
-            var clearRequest = sheetService.Spreadsheets.Values.Clear(new ClearValuesRequest(), _spreadsheetId, "Prices!A2:K1000");
-            await clearRequest.ExecuteAsync(cancellationToken);
-
-            var pairs = prices.OrderBy(kvp => kvp.Key).ToList();
+            var pairs = prices.OrderByDescending(kvp => kvp.Value.SuggestedPrice).ToList();
             var tagPairs = itemData.Tags.OrderBy(t => t.Key).Select(t => (t.Key, prices.Where(p => t.Value.Contains(p.Key)).OrderBy(p => p.Value.SuggestedPrice).FirstOrDefault().Value)).Where(t => t.Value != null).ToList();
 
             var batchUpdateBody = new BatchUpdateValuesRequest()
@@ -135,12 +132,19 @@ namespace EcoRecipeExtractor
                             kvp.Value.EnergyCost,
                             kvp.Value.WasteProductHandlingCost,
                             kvp.Value.SuggestedMarkup,
-                            kvp.Value.VariantUsed?.ToString(),
+                            kvp.Value.VariantUsed?.ToString() ?? kvp.Value.ItemName,
                         }).ToList<IList<object>>(),
                     },
                 },
                 ValueInputOption = "USER_ENTERED",
             };
+
+            var clearRequest = sheetService.Spreadsheets.Values.Clear(new ClearValuesRequest(), _spreadsheetId, "Prices!A2:K1000");
+            await clearRequest.ExecuteAsync(cancellationToken);
+
+            clearRequest = sheetService.Spreadsheets.Values.Clear(new ClearValuesRequest(), _spreadsheetId, "TagPrices!A2:K1000");
+            await clearRequest.ExecuteAsync(cancellationToken);
+
             var request = sheetService.Spreadsheets.Values.BatchUpdate(batchUpdateBody, _spreadsheetId);
             await request.ExecuteAsync(cancellationToken);
         }
