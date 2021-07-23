@@ -74,7 +74,7 @@ namespace EcoRecipeExtractor
                 {
                     if (_ingredientCost == null)
                     {
-                        var result = IngredientCosts.Sum(c => c.pricePerUnit.TotalCost * c.quantity * (c.cannotBeReducedViaModules ? 1 : c.pricePerUnit._getModifier()));
+                        var result = IngredientCosts.Sum(c => c.pricePerUnit.TotalCost * c.quantity * (c.cannotBeReducedViaModules ? 1 : _getModifier()));
 
                         if (VariantUsed == null)
                         {
@@ -94,7 +94,7 @@ namespace EcoRecipeExtractor
                 {
                     if (_suggestedIngredientsPrice == null)
                     {
-                        var result = IngredientCosts.Sum(c => c.pricePerUnit.SuggestedPrice * c.quantity * (c.cannotBeReducedViaModules ? 1 : c.pricePerUnit._getModifier()));
+                        var result = IngredientCosts.Sum(c => c.pricePerUnit.SuggestedPrice * c.quantity * (c.cannotBeReducedViaModules ? 1 : _getModifier()));
 
                         if (VariantUsed == null)
                         {
