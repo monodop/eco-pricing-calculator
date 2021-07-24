@@ -19,7 +19,7 @@ namespace EcoRecipeExtractor
 
             public List<(Recipe recipe, RecipeVariant variant)> RemainingRecipesToCompute { get; set; } = new List<(Recipe recipe, RecipeVariant variant)>();
             public bool Completed { get; set; } = false;
-            public PriceInfo PriceInfo { get; }
+            public PriceInfo PriceInfo { get; set; }
         }
 
         public class PriceInfo
@@ -37,31 +37,11 @@ namespace EcoRecipeExtractor
             public RecipeVariant VariantUsed { get; set; }
             public List<(string ingredient, long quantity, bool cannotBeReducedViaModules, PriceInfo pricePerUnit)> IngredientCosts { get; set; } = new List<(string ingredient, long quantity, bool cannotBeReducedViaModules, PriceInfo pricePerUnit)>();
 
-            private decimal _laborCost;
             public decimal LaborCost
-            {
-                get
-                {
-                    return _laborCost * (0.2m); // lvl 7 80% reduction
-                }
-                set
-                {
-                    _laborCost = value;
-                }
-            }
+                => ((decimal?)RecipeUsed?.BaseLaborCost ?? 0m) * _settings.CostPerLaborPoint * 0.2m; // lvl 7 80% reduction
 
-            private decimal _timeCost;
             public decimal TimeCost
-            {
-                get
-                {
-                    return _timeCost * _getModifier();
-                }
-                set
-                {
-                    _timeCost = value;
-                }
-            }
+                    => ((decimal?)RecipeUsed?.BaseCraftTime ?? 0m) * _settings.CostPerMinute * _getModifier();
 
             public decimal EnergyCost { get; set; }
             public decimal MaterialCost { get; set; }
@@ -239,6 +219,26 @@ namespace EcoRecipeExtractor
                 progressData[item] = computationProgress;
             }
 
+            // Iteration helper
+            IEnumerable<TOutput> processItem<TOutput>(string type, string name, Func<string, TOutput> func)
+            {
+                if (type == "ITEM")
+                {
+                    yield return func(name);
+                }
+                else if (type == "TAG")
+                {
+                    foreach (var item in _itemData.Tags[name])
+                    {
+                        yield return func(item);
+                    }
+                }
+                else
+                {
+                    throw new NotImplementedException();
+                }
+            }
+
             // Compute accessible recipes
             var dirty = true;
             while (dirty)
@@ -259,22 +259,11 @@ namespace EcoRecipeExtractor
                     {
                         foreach (var ingredient in variant.Ingredients)
                         {
-                            if (ingredient.type == "ITEM" && !progressData.ContainsKey(ingredient.name1))
+                            var options = processItem(ingredient.type, ingredient.name1, item => progressData.ContainsKey(item));
+                            if (!options.Any(o => o))
                             {
                                 progress.RemainingRecipesToCompute.Remove((recipe, variant));
                                 dirty = true;
-                            }
-                            else if (ingredient.type == "TAG")
-                            {
-                                if (_itemData.Tags[ingredient.name1].Count(option => progressData.ContainsKey(option)) == 0)
-                                {
-                                    progress.RemainingRecipesToCompute.Remove((recipe, variant));
-                                    dirty = true;
-                                }
-                            }
-                            else
-                            {
-
                             }
                         }
                     }
@@ -289,9 +278,12 @@ namespace EcoRecipeExtractor
                 {
                     foreach (var ingredient in currentVariant.variant.Ingredients)
                     {
-                        if (ingredient.type == "ITEM" && progressData.ContainsKey(ingredient.name1))
+                        processItem(ingredient.type, ingredient.name1, item =>
                         {
-                            var ingredientProcessData = progressData[ingredient.name1];
+                            if (!progressData.ContainsKey(item))
+                                return 0;
+
+                            var ingredientProcessData = progressData[item];
                             foreach (var ingredientRv in ingredientProcessData.RemainingRecipesToCompute)
                             {
                                 if (currentLoop.Contains(ingredientRv))
@@ -305,29 +297,8 @@ namespace EcoRecipeExtractor
                                 updatedSet.Add(ingredientRv);
                                 findLoops(ingredientRv, updatedSet, startingPoint);
                             }
-                        }
-                        else if (ingredient.type == "TAG")
-                        {
-                            foreach (var item in _itemData.Tags[ingredient.name1])
-                            {
-                                if (!progressData.ContainsKey(item))
-                                    continue;
-                                var ingredientProcessData = progressData[item];
-                                foreach (var ingredientRv in ingredientProcessData.RemainingRecipesToCompute)
-                                {
-                                    if (currentLoop.Contains(ingredientRv))
-                                    {
-                                        if (startingPoint == ingredientRv && !loops.Any(loop => loop.SetEquals(currentLoop)))
-                                            loops.Add(currentLoop);
-                                        continue;
-                                    }
-
-                                    var updatedSet = new HashSet<(Recipe recipe, RecipeVariant variant)>(currentLoop);
-                                    updatedSet.Add(ingredientRv);
-                                    findLoops(ingredientRv, updatedSet, startingPoint);
-                                }
-                            }
-                        }
+                            return 0;
+                        });
                     }
                 }
                 foreach (var (item, progress) in progressData.ToList())
@@ -341,24 +312,9 @@ namespace EcoRecipeExtractor
                 {
                     var shouldKeep = loop.Any(rv => rv.variant.Ingredients.All(ingredient =>
                     {
-                        if (ingredient.type == "ITEM")
-                        {
-                            if (progressData.ContainsKey(ingredient.name1) && progressData[ingredient.name1].RemainingRecipesToCompute.Count(ingredientRv => !loop.Contains(ingredientRv)) > 0)
-                            {
-                                return true;
-                            }
-                        }
-                        else if (ingredient.type == "TAG")
-                        {
-                            foreach (var item in _itemData.Tags[ingredient.name1])
-                            {
-                                if (progressData.ContainsKey(item))
-                                {
-                                    return true;
-                                }
-                            }
-                        }
-                        return false;
+                        return processItem(ingredient.type, ingredient.name1, item =>
+                            progressData.ContainsKey(item) && progressData[item].RemainingRecipesToCompute.Count(ingredientRv => !loop.Contains(ingredientRv)) > 0
+                        ).Any();
                     }));
 
                     if (shouldKeep)
@@ -386,9 +342,12 @@ namespace EcoRecipeExtractor
             {
                 foreach (var ingredient in currentVariant.variant.Ingredients)
                 {
-                    if (ingredient.type == "ITEM" && progressData.ContainsKey(ingredient.name1))
+                    processItem(ingredient.type, ingredient.name1, item =>
                     {
-                        var ingredientProcessData = progressData[ingredient.name1];
+                        if (!progressData.ContainsKey(item))
+                            return 0;
+
+                        var ingredientProcessData = progressData[item];
                         foreach (var ingredientRv in ingredientProcessData.RemainingRecipesToCompute)
                         {
                             if (currentLoop.Contains(ingredientRv))
@@ -402,29 +361,8 @@ namespace EcoRecipeExtractor
                             updatedSet.Add(ingredientRv);
                             findRemainingLoops(ingredientRv, updatedSet, startingPoint);
                         }
-                    }
-                    else if (ingredient.type == "TAG")
-                    {
-                        foreach (var item in _itemData.Tags[ingredient.name1])
-                        {
-                            if (!progressData.ContainsKey(item))
-                                continue;
-                            var ingredientProcessData = progressData[item];
-                            foreach (var ingredientRv in ingredientProcessData.RemainingRecipesToCompute)
-                            {
-                                if (currentLoop.Contains(ingredientRv))
-                                {
-                                    if (startingPoint == ingredientRv && !remainingLoops.Any(loop => loop.SetEquals(currentLoop)))
-                                        remainingLoops.Add(currentLoop);
-                                    continue;
-                                }
-
-                                var updatedSet = new HashSet<(Recipe recipe, RecipeVariant variant)>(currentLoop);
-                                updatedSet.Add(ingredientRv);
-                                findRemainingLoops(ingredientRv, updatedSet, startingPoint);
-                            }
-                        }
-                    }
+                        return 0;
+                    });
                 }
             }
             foreach (var (item, progress) in progressData.ToList())
@@ -458,64 +396,45 @@ namespace EcoRecipeExtractor
                     var completed = true;
                     var blockedByLoop = false;
 
-                    (Recipe recipe, RecipeVariant variant) bestRecipe = (null, null);
                     decimal bestRecipeCost = decimal.MaxValue;
-                    var bestIngredientCosts = new List<(string ingredient, long quantity, bool cannotBeReducedViaModules, PriceInfo pricePerUnit)>();
+                    var bestPriceInfo = progress.PriceInfo;
 
                     if (!itemPrices.ContainsKey(item))
                     {
                         foreach (var (recipe, variant) in progress.RemainingRecipesToCompute)
                         {
-                            decimal currentRecipeCost = 0;
+                            var currentPriceInfo = new PriceInfo(item, _settings)
+                            {
+                                MaterialCost = 0,
+                                WasteProductHandlingCost = 0,
+                                RecipeUsed = recipe,
+                                VariantUsed = variant,
+                            };
                             var currentBlockedByLoop = false;
-                            var currentIngredientCosts = new List<(string ingredient, long quantity, bool cannotBeReducedViaModules, PriceInfo pricePerUnit)>();
 
                             foreach (var ingredient in variant.Ingredients)
                             {
-                                if (ingredient.type == "ITEM")
+                                var ingredientOptions = processItem(ingredient.type, ingredient.name1, item => item)
+                                    .Where(item => progressData.ContainsKey(item))
+                                    .ToList();
+                                if (ingredientOptions.Count == 0 || ingredientOptions.Any(option => !progressData[option].Completed))
                                 {
-                                    if (!progressData.ContainsKey(ingredient.name1) || !progressData[ingredient.name1].Completed)
+                                    if (!remainingLoops.Any(loop => loop.Contains((recipe, variant))))
                                     {
-                                        if (!remainingLoops.Any(loop => loop.Contains((recipe, variant))))
-                                        {
-                                            Console.WriteLine($"{variant} waiting on item {ingredient.name1}");
-                                            completed = false;
-                                            break;
-                                        }
-                                        else
-                                        {
-                                            blockedByLoop = true;
-                                            currentBlockedByLoop = true;
-                                            continue;
-                                        }
+                                        Console.WriteLine($"{variant} waiting on {ingredient.type.ToLower()} {ingredient.name1}");
+                                        completed = false;
+                                        break;
                                     }
-                                    currentRecipeCost += progressData[ingredient.name1].PriceInfo.TotalCost * ingredient.quantity;
-                                    currentIngredientCosts.Add((ingredient.name1, ingredient.quantity, ingredient.cannotBeReducedViaModules, progressData[ingredient.name1].PriceInfo));
+                                    else
+                                    {
+                                        blockedByLoop = true;
+                                        currentBlockedByLoop = true;
+                                        continue;
+                                    }
                                 }
-                                else if (ingredient.type == "TAG")
-                                {
-                                    var availableOptions = _itemData.Tags[ingredient.name1].Where(i => progressData.ContainsKey(i)).ToList();
-                                    if (availableOptions.Count == 0 || availableOptions.Any(option => !progressData[option].Completed))
-                                    {
-                                        if (!remainingLoops.Any(loop => loop.Contains((recipe, variant))))
-                                        {
-                                            Console.WriteLine($"{variant} waiting on tag {ingredient.name1}");
-                                            completed = false;
-                                            break;
-                                        }
-                                        else
-                                        {
-                                            blockedByLoop = true;
-                                            currentBlockedByLoop = true;
-                                            continue;
-                                        }
-                                    }
 
-                                    var orderedOptions = availableOptions.OrderBy(option => progressData[option].PriceInfo.TotalCost);
-                                    var bestOption = orderedOptions.First();
-                                    currentRecipeCost += progressData[bestOption].PriceInfo.TotalCost * ingredient.quantity;
-                                    currentIngredientCosts.Add((bestOption, ingredient.quantity, ingredient.cannotBeReducedViaModules, progressData[bestOption].PriceInfo));
-                                }
+                                var bestOption = ingredientOptions.OrderBy(option => progressData[option].PriceInfo.TotalCost).First();
+                                currentPriceInfo.IngredientCosts.Add((bestOption, ingredient.quantity, ingredient.cannotBeReducedViaModules, progressData[bestOption].PriceInfo));
                             }
 
                             if (!completed)
@@ -524,29 +443,18 @@ namespace EcoRecipeExtractor
                             if (currentBlockedByLoop)
                                 continue;
 
-                            currentRecipeCost /= ((variant?.Products.Single(p => p.name1 == item).quantity) ?? 1);
-
-                            if (currentRecipeCost < bestRecipeCost)
+                            if (currentPriceInfo.TotalCost < bestRecipeCost)
                             {
-                                // TODO: factor in all costs, somehow
-                                bestRecipe = (recipe, variant);
-                                bestRecipeCost = currentRecipeCost;
-                                bestIngredientCosts = currentIngredientCosts;
+                                bestPriceInfo = currentPriceInfo;
+                                bestRecipeCost = currentPriceInfo.TotalCost;
                             }
                         }
                     }
 
-                    if (completed && (!blockedByLoop || bestRecipe.recipe != null))
+                    if (completed && (!blockedByLoop || bestPriceInfo != progress.PriceInfo))
                     {
                         progress.Completed = true;
-                        progress.PriceInfo.RecipeUsed = bestRecipe.recipe;
-                        progress.PriceInfo.VariantUsed = bestRecipe.variant;
-                        if (progress.PriceInfo.VariantUsed != null)
-                        {
-                            progress.PriceInfo.IngredientCosts = bestIngredientCosts;
-                            progress.PriceInfo.LaborCost = (decimal)progress.PriceInfo.RecipeUsed.BaseLaborCost * _settings.CostPerLaborPoint;
-                            progress.PriceInfo.TimeCost = (decimal)progress.PriceInfo.RecipeUsed.BaseCraftTime * _settings.CostPerMinute;
-                        }
+                        progress.PriceInfo = bestPriceInfo;
                         remaining.Remove(item);
                         Console.WriteLine($"Processed {item}");
                     }
