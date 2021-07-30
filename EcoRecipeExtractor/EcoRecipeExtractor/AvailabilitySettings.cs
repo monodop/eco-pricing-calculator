@@ -10,6 +10,7 @@ namespace EcoRecipeExtractor
         public Dictionary<string, decimal> TagPrices { get; set; } = new Dictionary<string, decimal>();
         public Dictionary<string, decimal> ItemByproductHandlingPrices { get; set; } = new Dictionary<string, decimal>();
         public Dictionary<string, decimal> TagByproductHandlingPrices { get; set; } = new Dictionary<string, decimal>();
+        public List<string> AdditionalRawMaterialsForIngredientsList { get; set; } = new List<string>();
 
         public List<string> AvailableTables { get; set; } = new List<string>();
         public Dictionary<string, UpgradeType> TableUpgradeTypes { get; set; } = new Dictionary<string, UpgradeType>();

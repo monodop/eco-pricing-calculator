@@ -41,7 +41,7 @@ namespace EcoRecipeExtractor
                 => ((decimal?)RecipeUsed?.BaseLaborCost ?? 0m) * _settings.CostPerLaborPoint * 0.2m; // lvl 7 80% reduction
 
             public decimal TimeCost
-                    => ((decimal?)RecipeUsed?.BaseCraftTime ?? 0m) * _settings.CostPerMinute * _getModifier();
+                    => ((decimal?)RecipeUsed?.BaseCraftTime ?? 0m) * _settings.CostPerMinute * GetModifier();
 
             public decimal EnergyCost { get; set; }
             public decimal MaterialCost { get; set; }
@@ -54,7 +54,7 @@ namespace EcoRecipeExtractor
                 {
                     if (_ingredientCost == null)
                     {
-                        var result = IngredientCosts.Sum(c => c.pricePerUnit.TotalCost * c.quantity * (c.cannotBeReducedViaModules ? 1 : _getModifier()));
+                        var result = IngredientCosts.Sum(c => c.pricePerUnit.TotalCost * c.quantity * (c.cannotBeReducedViaModules ? 1 : GetModifier()));
 
                         if (VariantUsed == null)
                         {
@@ -67,6 +67,8 @@ namespace EcoRecipeExtractor
                 }
             }
 
+            public Dictionary<string, decimal> TotalIngredients { get; set; } = new Dictionary<string, decimal>();
+
             private decimal? _suggestedIngredientsPrice;
             public decimal SuggestedIngredientsPrice
             {
@@ -74,7 +76,7 @@ namespace EcoRecipeExtractor
                 {
                     if (_suggestedIngredientsPrice == null)
                     {
-                        var result = IngredientCosts.Sum(c => c.pricePerUnit.SuggestedPrice * c.quantity * (c.cannotBeReducedViaModules ? 1 : _getModifier()));
+                        var result = IngredientCosts.Sum(c => c.pricePerUnit.SuggestedPrice * c.quantity * (c.cannotBeReducedViaModules ? 1 : GetModifier()));
 
                         if (VariantUsed == null)
                         {
@@ -87,7 +89,7 @@ namespace EcoRecipeExtractor
                 }
             }
 
-            private decimal _getModifier()
+            public decimal GetModifier()
             {
                 if (RecipeUsed == null)
                     return 1;
@@ -453,6 +455,30 @@ namespace EcoRecipeExtractor
 
                     if (completed && (!blockedByLoop || bestPriceInfo != progress.PriceInfo))
                     {
+                        // calculate total ingredients
+                        Dictionary<string, decimal> getTotalIngredients(PriceInfo priceInfo)
+                        {
+                            var result = new Dictionary<string, decimal>();
+                            if (itemPrices.ContainsKey(priceInfo.ItemName) || _settings.AdditionalRawMaterialsForIngredientsList.Contains(priceInfo.ItemName))
+                            {
+                                result[priceInfo.ItemName] = 1;
+                                return result;
+                            }
+
+                            foreach (var ingredientCost in priceInfo.IngredientCosts)
+                            {
+                                //var ingredientMaterials = getTotalIngredients(ingredientCost.pricePerUnit);
+                                foreach (var (material, quantity) in ingredientCost.pricePerUnit.TotalIngredients)
+                                {
+                                    if (!result.ContainsKey(material))
+                                        result[material] = 0;
+                                    result[material] += quantity * ingredientCost.quantity * (ingredientCost.cannotBeReducedViaModules ? 1 : priceInfo.GetModifier());
+                                }
+                            }
+                            return result;
+                        }
+                        bestPriceInfo.TotalIngredients = getTotalIngredients(bestPriceInfo);
+
                         progress.Completed = true;
                         progress.PriceInfo = bestPriceInfo;
                         remaining.Remove(item);

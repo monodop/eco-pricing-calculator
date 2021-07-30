@@ -52,7 +52,8 @@ namespace EcoRecipeExtractor
                 "Settings!H2:J1000", // 2 Raw material prices
                 "Settings!L2:N1000", // 3 Byproduct handling prices
                 "Settings!P2:R1000", // 4 Raw material demand
-                "Settings!T1:U1000", // 5 Other settings
+                "Settings!T2:T1000", // 5 Additional Raw Material (ingredient list)
+                "Settings!V1:W1000", // 6 Other settings
             });
             var response = await request.ExecuteAsync(cancellationToken);
 
@@ -64,15 +65,17 @@ namespace EcoRecipeExtractor
             settings.TagPrices = response.ValueRanges[2].Values?.Where(v => v[0].ToString() == "TAG").ToDictionary(v => v[1].ToString(), v => decimal.Parse(v[2].ToString())) ?? new Dictionary<string, decimal>();
             settings.ItemByproductHandlingPrices = response.ValueRanges[3].Values?.Where(v => v[0].ToString() == "ITEM").ToDictionary(v => v[1].ToString(), v => decimal.Parse(v[2].ToString())) ?? new Dictionary<string, decimal>();
             settings.TagByproductHandlingPrices = response.ValueRanges[3].Values?.Where(v => v[0].ToString() == "TAG").ToDictionary(v => v[1].ToString(), v => decimal.Parse(v[2].ToString())) ?? new Dictionary<string, decimal>();
-            // TODO: demand
-            settings.CostPerLaborPoint = decimal.Parse(response.ValueRanges[5].Values.First(v => v[0].ToString() == "Cost Per Labor Pt")[1].ToString());
-            settings.CostPerMinute = decimal.Parse(response.ValueRanges[5].Values.First(v => v[0].ToString() == "Cost Per Minute")[1].ToString());
-            settings.NormalDemandMargin = decimal.Parse(response.ValueRanges[5].Values.First(v => v[0].ToString() == "Normal Demand Margin")[1].ToString());
-            settings.HighDemandMargin = decimal.Parse(response.ValueRanges[5].Values.First(v => v[0].ToString() == "High Demand Margin")[1].ToString());
+            settings.AdditionalRawMaterialsForIngredientsList = response.ValueRanges[5].Values?.Select(v => v[0].ToString()).ToList() ?? new List<string>();
 
-            settings.BasicUpgradePct = decimal.Parse(response.ValueRanges[5].Values.First(v => v[0].ToString() == "Basic Upgrade %")[1].ToString().TrimEnd('%')) / 100;
-            settings.AdvancedUpgradePct = decimal.Parse(response.ValueRanges[5].Values.First(v => v[0].ToString() == "Advanced Upgrade %")[1].ToString().TrimEnd('%')) / 100;
-            settings.ModernUpgradePct = decimal.Parse(response.ValueRanges[5].Values.First(v => v[0].ToString() == "Modern Upgrade %")[1].ToString().TrimEnd('%')) / 100;
+            // TODO: demand
+            settings.CostPerLaborPoint = decimal.Parse(response.ValueRanges[6].Values.First(v => v[0].ToString() == "Cost Per Labor Pt")[1].ToString());
+            settings.CostPerMinute = decimal.Parse(response.ValueRanges[6].Values.First(v => v[0].ToString() == "Cost Per Minute")[1].ToString());
+            settings.NormalDemandMargin = decimal.Parse(response.ValueRanges[6].Values.First(v => v[0].ToString() == "Normal Demand Margin")[1].ToString());
+            settings.HighDemandMargin = decimal.Parse(response.ValueRanges[6].Values.First(v => v[0].ToString() == "High Demand Margin")[1].ToString());
+
+            settings.BasicUpgradePct = decimal.Parse(response.ValueRanges[6].Values.First(v => v[0].ToString() == "Basic Upgrade %")[1].ToString().TrimEnd('%')) / 100;
+            settings.AdvancedUpgradePct = decimal.Parse(response.ValueRanges[6].Values.First(v => v[0].ToString() == "Advanced Upgrade %")[1].ToString().TrimEnd('%')) / 100;
+            settings.ModernUpgradePct = decimal.Parse(response.ValueRanges[6].Values.First(v => v[0].ToString() == "Modern Upgrade %")[1].ToString().TrimEnd('%')) / 100;
             return settings;
         }
 
@@ -101,7 +104,7 @@ namespace EcoRecipeExtractor
                 {
                     new ValueRange()
                     {
-                        Range = "Prices!A2:K" + (pairs.Count + 1),
+                        Range = "Prices!A2:L" + (pairs.Count + 1),
                         Values = pairs.Select(kvp => new List<object>()
                         {
                             kvp.Key,
@@ -115,6 +118,7 @@ namespace EcoRecipeExtractor
                             kvp.Value.WasteProductHandlingCost,
                             kvp.Value.SuggestedMarkup,
                             kvp.Value.VariantUsed?.ToString(),
+                            string.Join(", ", kvp.Value.TotalIngredients.Select(ingredient => $"{ingredient.Key}: {ingredient.Value.ToString("0.##")}")),
                         }).ToList<IList<object>>(),
                     },
                     new ValueRange()
@@ -139,7 +143,7 @@ namespace EcoRecipeExtractor
                 ValueInputOption = "USER_ENTERED",
             };
 
-            var clearRequest = sheetService.Spreadsheets.Values.Clear(new ClearValuesRequest(), _spreadsheetId, "Prices!A2:K1000");
+            var clearRequest = sheetService.Spreadsheets.Values.Clear(new ClearValuesRequest(), _spreadsheetId, "Prices!A2:L1000");
             await clearRequest.ExecuteAsync(cancellationToken);
 
             clearRequest = sheetService.Spreadsheets.Values.Clear(new ClearValuesRequest(), _spreadsheetId, "TagPrices!A2:K1000");
