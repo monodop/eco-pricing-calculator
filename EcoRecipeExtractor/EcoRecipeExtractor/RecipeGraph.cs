@@ -300,7 +300,7 @@ namespace EcoRecipeExtractor
                                 findLoops(ingredientRv, updatedSet, startingPoint);
                             }
                             return 0;
-                        });
+                        }).ToList();
                     }
                 }
                 foreach (var (item, progress) in progressData.ToList())
@@ -364,7 +364,7 @@ namespace EcoRecipeExtractor
                             findRemainingLoops(ingredientRv, updatedSet, startingPoint);
                         }
                         return 0;
-                    });
+                    }).ToList();
                 }
             }
             foreach (var (item, progress) in progressData.ToList())
@@ -386,7 +386,8 @@ namespace EcoRecipeExtractor
                         .Where(p => !p.Value.Completed)
                         .Select(p => (p.Key, p.Value.RemainingRecipesToCompute.Select(r => r.variant)))
                         .ToDictionary(p => p.Key, p => p.Item2);
-                    var json = JsonConvert.SerializeObject(variantsRemaining, Formatting.Indented);
+                    var itemsCompleted = progressData.Where(p => p.Value.Completed).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+                    var json = JsonConvert.SerializeObject(new { Remaining = variantsRemaining, Completed = itemsCompleted }, Formatting.Indented);
                     Console.WriteLine(json);
 
                     throw new Exception("Stuck");
@@ -467,7 +468,6 @@ namespace EcoRecipeExtractor
 
                             foreach (var ingredientCost in priceInfo.IngredientCosts)
                             {
-                                //var ingredientMaterials = getTotalIngredients(ingredientCost.pricePerUnit);
                                 foreach (var (material, quantity) in ingredientCost.pricePerUnit.TotalIngredients)
                                 {
                                     if (!result.ContainsKey(material))
