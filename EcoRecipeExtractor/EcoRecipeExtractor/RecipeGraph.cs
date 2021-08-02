@@ -104,6 +104,8 @@ namespace EcoRecipeExtractor
                     });
             }
 
+            public long NumProducts => (VariantUsed?.Products.Single(p => p.name1 == ItemName).quantity) ?? 1;
+
             private decimal? _totalCost;
             public decimal TotalCost
             {
@@ -112,7 +114,7 @@ namespace EcoRecipeExtractor
                     if (_totalCost == null)
                     {
                         // TODO: factor in other products?
-                        var result = (LaborCost + TimeCost + EnergyCost + MaterialCost + IngredientsCost + WasteProductHandlingCost) / ((VariantUsed?.Products.Single(p => p.name1 == ItemName).quantity) ?? 1);
+                        var result = (LaborCost + TimeCost + EnergyCost + MaterialCost + IngredientsCost + WasteProductHandlingCost) / NumProducts;
 
                         if (VariantUsed == null)
                         {
@@ -132,7 +134,7 @@ namespace EcoRecipeExtractor
                 {
                     if (_suggestedPrice == null)
                     {
-                        var result = (LaborCost + TimeCost + EnergyCost + MaterialCost + SuggestedIngredientsPrice + WasteProductHandlingCost) / ((VariantUsed?.Products.Single(p => p.name1 == ItemName).quantity) ?? 1);
+                        var result = (LaborCost + TimeCost + EnergyCost + MaterialCost + SuggestedIngredientsPrice + WasteProductHandlingCost) / NumProducts;
                         result = -(result / (_settings.NormalDemandMargin - 1));
 
                         if (VariantUsed == null)
@@ -477,7 +479,7 @@ namespace EcoRecipeExtractor
                             }
                             return result;
                         }
-                        bestPriceInfo.TotalIngredients = getTotalIngredients(bestPriceInfo);
+                        bestPriceInfo.TotalIngredients = getTotalIngredients(bestPriceInfo).ToDictionary(kvp => kvp.Key, kvp => kvp.Value / bestPriceInfo.NumProducts);
 
                         progress.Completed = true;
                         progress.PriceInfo = bestPriceInfo;
